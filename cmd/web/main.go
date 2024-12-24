@@ -2,10 +2,13 @@ package main
 
 import (
 	"flag"
-	"log"
+	"fmt"
 	"net/http"
 	"os"
 	"snippetbox/env"
+	"snippetbox/internal/config"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
@@ -13,21 +16,20 @@ func main() {
 	flag.Parse()
 
 	env.SetEnvVariables(*mode)
+
 	port := os.Getenv("GO_PORT")
+	dsn := fmt.Sprintf("%s:%s@/%s?parseTime=true", os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"))
 
-	mux := http.NewServeMux()
+	db, err := openDB(dsn)
+	if err != nil {
+		panic(err)
+	}
 
-	fileServer := http.FileServer(http.Dir("ui/static/"))
+	app := config.NewApplication(db)
 
-	mux.Handle("GET /static/", http.StripPrefix("/static", fileServer))
+	app.Logger.Info("Starting server", "addr", port)
 
-	mux.HandleFunc("GET /{$}", home)
-	mux.HandleFunc("GET /snippet/view/{id}", getSnippet)
-	mux.HandleFunc("GET /snippet/create", getSnippetCreationForm)
-	mux.HandleFunc("POST /snippet/create", createSnippet)
-
-	log.Printf("Listening on localhost%s", port)
-
-	err := http.ListenAndServe(port, mux)
-	log.Fatal(err)
+	err = http.ListenAndServe(port, routes(app))
+	app.Logger.Error(err.Error())
+	os.Exit(1)
 }

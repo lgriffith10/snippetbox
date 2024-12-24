@@ -6,7 +6,12 @@ import (
 )
 
 var dev = map[string]string{
-	"GO_PORT": ":8080",
+	"GO_PORT":     ":8080",
+	"DB_PORT":     "3306",
+	"DB_USER":     "mysql",
+	"DB_PASSWORD": "mysql",
+	"DB_HOST":     "localhost",
+	"DB_NAME":     "snippetbox",
 }
 
 var prod = map[string]string{
