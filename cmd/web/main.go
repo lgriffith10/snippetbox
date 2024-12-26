@@ -25,7 +25,12 @@ func main() {
 		panic(err)
 	}
 
-	app := config.NewApplication(db)
+	templateCache, err := newTemplateCache()
+	if err != nil {
+		panic(err)
+	}
+
+	app := config.NewApplication(db, templateCache)
 
 	app.Logger.Info("Starting server", "addr", port)
 

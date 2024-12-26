@@ -19,31 +19,12 @@ func Home(app *config.Application) http.HandlerFunc {
 			clientError(http.StatusInternalServerError, w)
 		}
 
-		for _, snippet := range snippets {
-			fmt.Fprintf(w, "%+v\n", snippet)
+		data := templateData{
+			Snippets: snippets,
 		}
+
+		render(app, w, r, http.StatusOK, "home.html", data)
 	}
-
-	/** files := []string{
-			"ui/html/base.html",
-			"ui/html/pages/home.html",
-			"ui/html/partials/nav.html",
-		}
-
-		ts, err := template.ParseFiles(files...)
-		if err != nil {
-			serverError(app, r, err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-
-		err = ts.ExecuteTemplate(w, "base", nil)
-		if err != nil {
-			serverError(app, r, err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		}
-	} **/
-
 }
 
 func GetSnippet(app *config.Application) http.HandlerFunc {
@@ -64,7 +45,11 @@ func GetSnippet(app *config.Application) http.HandlerFunc {
 			return
 		}
 
-		fmt.Fprintf(w, "%+v", snippet)
+		data := templateData{
+			Snippet: snippet,
+		}
+
+		render(app, w, r, http.StatusOK, "view.html", data)
 	}
 }
 
