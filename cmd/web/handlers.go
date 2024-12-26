@@ -19,9 +19,8 @@ func Home(app *config.Application) http.HandlerFunc {
 			clientError(http.StatusInternalServerError, w)
 		}
 
-		data := templateData{
-			Snippets: snippets,
-		}
+		data := newTemplateData(r)
+		data.Snippets = snippets
 
 		render(app, w, r, http.StatusOK, "home.html", data)
 	}
@@ -45,9 +44,8 @@ func GetSnippet(app *config.Application) http.HandlerFunc {
 			return
 		}
 
-		data := templateData{
-			Snippet: snippet,
-		}
+		data := newTemplateData(r)
+		data.Snippet = snippet
 
 		render(app, w, r, http.StatusOK, "view.html", data)
 	}
