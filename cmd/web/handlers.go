@@ -6,13 +6,12 @@ import (
 	"net/http"
 	"snippetbox/internal/config"
 	"snippetbox/internal/models"
+	"snippetbox/internal/validator"
 	"strconv"
 )
 
 func Home(app *config.Application) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Server", "GO")
-
 		snippets, err := app.Snippets.Latest()
 		if err != nil {
 			serverError(app, r, err)
@@ -51,21 +50,68 @@ func GetSnippet(app *config.Application) http.HandlerFunc {
 	}
 }
 
-func GetSnippetCreationForm() http.HandlerFunc {
+func GetSnippetCreationForm(app *config.Application) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Display a form for creating a new snippet"))
+		data := newTemplateData(r)
+		data.Form = CreateSnippetForm{
+			Expires: 365,
+		}
+
+		render(app, w, r, http.StatusOK, "create.html", data)
 	}
+}
+
+type CreateSnippetForm struct {
+	Title       string
+	Content     string
+	Expires     int
+	FieldErrors map[string]string
+
+	validator.Validator
 }
 
 func CreateSnippet(app *config.Application) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		title := "0 snail"
-		content := "O snail\nClimb Mount Fuji,\nBut slowly, slowly!\n\n– Kobayashi Issa"
-		expires := 7
+		err := r.ParseForm()
+		if err != nil {
+			clientError(http.StatusBadRequest, w)
+			return
+		}
 
-		id, err := app.Snippets.Insert(title, content, expires)
+		expires, err := strconv.Atoi(r.PostForm.Get("expires"))
+		if err != nil {
+			clientError(http.StatusBadRequest, w)
+			return
+		}
+
+		form := CreateSnippetForm{
+			Title:       r.PostForm.Get("title"),
+			Content:     r.PostForm.Get("content"),
+			Expires:     expires,
+			FieldErrors: map[string]string{},
+		}
+
+		permittedYears := []int{
+			1, 7, 365,
+		}
+
+		form.CheckField(validator.NotBlank(form.Title), "title", "This field cannot be blank")
+		form.CheckField(validator.MaxChars(form.Title, 100), "title", "This field cannot be more than 100 characters long")
+		form.CheckField(validator.NotBlank(form.Content), "content", "This field cannot be blank")
+		form.CheckField(validator.PermittedValue(form.Expires, permittedYears), "expires", "This field cannot be blank")
+
+		if !form.Valid() {
+			data := newTemplateData(r)
+			data.Form = form
+			fmt.Println(data.Form)
+			render(app, w, r, http.StatusUnprocessableEntity, "create.html", data)
+			return
+		}
+
+		id, err := app.Snippets.Insert(form.Title, form.Content, expires)
 		if err != nil {
 			serverError(app, r, err)
+			clientError(http.StatusInternalServerError, w)
 			return
 		}
 

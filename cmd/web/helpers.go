@@ -16,6 +16,7 @@ func serverError(app *config.Application, r *http.Request, err error) {
 	)
 
 	app.Logger.Error(err.Error(), "method", method, "uri", uri, "trace", trace)
+
 }
 
 func clientError(status int, w http.ResponseWriter) {
