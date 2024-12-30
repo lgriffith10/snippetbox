@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"snippetbox/internal/config"
 )
 
 func commonHeaders(next http.Handler) http.Handler {
@@ -21,7 +20,7 @@ func commonHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func logRequest(app *config.Application, next http.Handler) http.Handler {
+func (app *Application) logRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var (
 			ip     = r.RemoteAddr
@@ -36,13 +35,13 @@ func logRequest(app *config.Application, next http.Handler) http.Handler {
 	})
 }
 
-func recoverPanic(app *config.Application, next http.Handler) http.Handler {
+func (app *Application) recoverPanic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
 				w.Header().Set("Connection", "close")
-				serverError(app, r, fmt.Errorf("%s", err))
-				clientError(http.StatusInternalServerError, w)
+				app.serverError(r, fmt.Errorf("%s", err))
+				app.clientError(http.StatusInternalServerError, w)
 			}
 		}()
 

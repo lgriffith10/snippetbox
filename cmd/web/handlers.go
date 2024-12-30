@@ -4,117 +4,164 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"snippetbox/internal/config"
 	"snippetbox/internal/models"
 	"snippetbox/internal/validator"
 	"strconv"
 )
 
-func Home(app *config.Application) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		snippets, err := app.Snippets.Latest()
-		if err != nil {
-			serverError(app, r, err)
-			clientError(http.StatusInternalServerError, w)
-		}
-
-		data := newTemplateData(r)
-		data.Snippets = snippets
-
-		render(app, w, r, http.StatusOK, "home.html", data)
+func (app *Application) Home(w http.ResponseWriter, r *http.Request) {
+	snippets, err := app.Snippets.Latest()
+	if err != nil {
+		app.serverError(r, err)
+		app.clientError(http.StatusInternalServerError, w)
 	}
+
+	data := app.newTemplateData(r)
+	data.Snippets = snippets
+
+	app.render(w, r, http.StatusOK, "home.html", data)
 }
 
-func GetSnippet(app *config.Application) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.Atoi(r.PathValue("id"))
-		if err != nil || id < 1 {
+func (app *Application) GetSnippet(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		http.NotFound(w, r)
+		return
+	}
+
+	snippet, err := app.Snippets.Get(id)
+	if err != nil {
+		if errors.Is(err, models.ErrNoRecord) {
 			http.NotFound(w, r)
-			return
+		} else {
+			app.serverError(r, err)
 		}
-
-		snippet, err := app.Snippets.Get(id)
-		if err != nil {
-			if errors.Is(err, models.ErrNoRecord) {
-				http.NotFound(w, r)
-			} else {
-				serverError(app, r, err)
-			}
-			return
-		}
-
-		data := newTemplateData(r)
-		data.Snippet = snippet
-
-		render(app, w, r, http.StatusOK, "view.html", data)
+		return
 	}
+
+	flash := app.SessionManager.PopString(r.Context(), "flash")
+
+	data := app.newTemplateData(r)
+	data.Snippet = snippet
+	data.Flash = flash
+
+	app.render(w, r, http.StatusOK, "view.html", data)
 }
 
-func GetSnippetCreationForm(app *config.Application) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data := newTemplateData(r)
-		data.Form = CreateSnippetForm{
-			Expires: 365,
-		}
-
-		render(app, w, r, http.StatusOK, "create.html", data)
+func (app *Application) GetSnippetCreationForm(w http.ResponseWriter, r *http.Request) {
+	data := app.newTemplateData(r)
+	data.Form = CreateSnippetForm{
+		Expires: 365,
 	}
+
+	app.render(w, r, http.StatusOK, "create.html", data)
 }
 
 type CreateSnippetForm struct {
-	Title       string
-	Content     string
-	Expires     int
-	FieldErrors map[string]string
+	Title   string `form:"title"`
+	Content string `form:"content"`
+	Expires int    `form:"expires"`
 
-	validator.Validator
+	validator.Validator `form:"-"`
 }
 
-func CreateSnippet(app *config.Application) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := r.ParseForm()
-		if err != nil {
-			clientError(http.StatusBadRequest, w)
-			return
-		}
+func (app *Application) CreateSnippet(w http.ResponseWriter, r *http.Request) {
+	var form CreateSnippetForm
 
-		expires, err := strconv.Atoi(r.PostForm.Get("expires"))
-		if err != nil {
-			clientError(http.StatusBadRequest, w)
-			return
-		}
-
-		form := CreateSnippetForm{
-			Title:       r.PostForm.Get("title"),
-			Content:     r.PostForm.Get("content"),
-			Expires:     expires,
-			FieldErrors: map[string]string{},
-		}
-
-		permittedYears := []int{
-			1, 7, 365,
-		}
-
-		form.CheckField(validator.NotBlank(form.Title), "title", "This field cannot be blank")
-		form.CheckField(validator.MaxChars(form.Title, 100), "title", "This field cannot be more than 100 characters long")
-		form.CheckField(validator.NotBlank(form.Content), "content", "This field cannot be blank")
-		form.CheckField(validator.PermittedValue(form.Expires, permittedYears), "expires", "This field cannot be blank")
-
-		if !form.Valid() {
-			data := newTemplateData(r)
-			data.Form = form
-			fmt.Println(data.Form)
-			render(app, w, r, http.StatusUnprocessableEntity, "create.html", data)
-			return
-		}
-
-		id, err := app.Snippets.Insert(form.Title, form.Content, expires)
-		if err != nil {
-			serverError(app, r, err)
-			clientError(http.StatusInternalServerError, w)
-			return
-		}
-
-		http.Redirect(w, r, fmt.Sprintf("/snippet/view/%d", id), http.StatusSeeOther)
+	err := app.decodePostForm(r, &form)
+	if err != nil {
+		app.clientError(http.StatusBadRequest, w)
+		return
 	}
+
+	form.CheckField(validator.NotBlank(form.Title), "title", "This field cannot be blank")
+	form.CheckField(validator.MaxChars(form.Title, 100), "title", "This field cannot be more than 100 characters long")
+	form.CheckField(validator.NotBlank(form.Content), "content", "This field cannot be blank")
+	form.CheckField(validator.PermittedValue(form.Expires, 1, 7, 365), "expires", "This field cannot be blank")
+
+	if !form.Valid() {
+		data := app.newTemplateData(r)
+		data.Form = form
+		app.render(w, r, http.StatusUnprocessableEntity, "create.html", data)
+		return
+	}
+
+	id, err := app.Snippets.Insert(form.Title, form.Content, form.Expires)
+	if err != nil {
+		app.serverError(r, err)
+		app.clientError(http.StatusInternalServerError, w)
+		return
+	}
+
+	app.SessionManager.Put(r.Context(), "flash", "Snippet successfully created")
+
+	http.Redirect(w, r, fmt.Sprintf("/snippet/view/%d", id), http.StatusSeeOther)
+}
+
+type UserSignupForm struct {
+	Name     string `form:"name"`
+	Email    string `form:"email"`
+	Password string `form:"password"`
+
+	validator.Validator `form:"-"`
+}
+
+func (app *Application) GetUserSignUpForm(w http.ResponseWriter, r *http.Request) {
+	data := app.newTemplateData(r)
+	data.Form = UserSignupForm{}
+	app.render(w, r, http.StatusOK, "signup.html", data)
+}
+
+func (app *Application) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	var form UserSignupForm
+
+	err := app.decodePostForm(r, &form)
+	if err != nil {
+		app.clientError(http.StatusBadRequest, w)
+		return
+	}
+
+	form.CheckField(validator.NotBlank(form.Name), "Name", "Name cannot be blank")
+	form.CheckField(validator.NotBlank(form.Email), "Email", "Email cannot be blank")
+	form.CheckField(validator.Matches(form.Email, validator.EmailRX), "Email", "This must be a valid email")
+	form.CheckField(validator.NotBlank(form.Password), "Password", "Password cannot be blank")
+	form.CheckField(validator.MinChars(form.Password, 8), "Password", "Password must be at least 8 characters")
+
+	if !form.Valid() {
+		data := app.newTemplateData(r)
+		data.Form = form
+		app.render(w, r, http.StatusUnprocessableEntity, "signup.html", data)
+		return
+	}
+
+	err = app.Users.Insert(form.Name, form.Email, form.Password)
+	if err != nil {
+		if errors.Is(err, models.ErrDuplicateEmail) {
+			form.AddFieldError("Email", "Email is already taken")
+
+			data := app.newTemplateData(r)
+			data.Form = form
+			app.render(w, r, http.StatusUnprocessableEntity, "signup.html", data)
+			return
+		} else {
+			app.serverError(r, err)
+		}
+
+		return
+	}
+
+	app.SessionManager.Put(r.Context(), "flash", "User successfully created")
+	http.Redirect(w, r, "/user/login", http.StatusSeeOther)
+}
+
+func (app *Application) GetUserLoginForm(w http.ResponseWriter, r *http.Request) {
+	_, _ = fmt.Fprintln(w, "Display a form for logging user")
+}
+
+func (app *Application) LoginUser(w http.ResponseWriter, r *http.Request) {
+	_, _ = fmt.Fprintln(w, "Login user")
+}
+
+func (app *Application) LogoutUser(w http.ResponseWriter, r *http.Request) {
+	_, _ = fmt.Fprintln(w, "Logout user")
 }
