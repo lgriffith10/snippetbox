@@ -154,14 +154,72 @@ func (app *Application) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/user/login", http.StatusSeeOther)
 }
 
+type LoginForm struct {
+	Email    string `form:"email"`
+	Password string `form:"password"`
+
+	validator.Validator `form:"-"`
+}
+
 func (app *Application) GetUserLoginForm(w http.ResponseWriter, r *http.Request) {
-	_, _ = fmt.Fprintln(w, "Display a form for logging user")
+	data := app.newTemplateData(r)
+	data.Form = LoginForm{}
+	app.render(w, r, http.StatusOK, "login.html", data)
 }
 
 func (app *Application) LoginUser(w http.ResponseWriter, r *http.Request) {
-	_, _ = fmt.Fprintln(w, "Login user")
+	var form LoginForm
+
+	err := app.decodePostForm(r, &form)
+	if err != nil {
+		app.clientError(http.StatusBadRequest, w)
+		return
+	}
+
+	form.CheckField(validator.NotBlank(form.Email), "Email", "Email cannot be blank")
+	form.CheckField(validator.Matches(form.Email, validator.EmailRX), "Email", "This must be a valid email")
+	form.CheckField(validator.NotBlank(form.Password), "Password", "Password cannot be blank")
+
+	if !form.Valid() {
+		data := app.newTemplateData(r)
+		data.Form = form
+		app.render(w, r, http.StatusUnprocessableEntity, "login.html", data)
+		return
+	}
+
+	id, err := app.Users.Authenticate(form.Email, form.Password)
+	if err != nil {
+		if errors.Is(err, models.ErrInvalidCredentials) {
+			form.AddNonFieldError("Invalid email or password")
+
+			data := app.newTemplateData(r)
+			data.Form = form
+			app.render(w, r, http.StatusUnprocessableEntity, "login.html", data)
+		} else {
+			app.serverError(r, err)
+		}
+		return
+	}
+
+	err = app.SessionManager.RenewToken(r.Context())
+	if err != nil {
+		app.serverError(r, err)
+		return
+	}
+
+	app.SessionManager.Put(r.Context(), "authenticatedUserId", id)
+	http.Redirect(w, r, "/snippet/create", http.StatusSeeOther)
 }
 
 func (app *Application) LogoutUser(w http.ResponseWriter, r *http.Request) {
-	_, _ = fmt.Fprintln(w, "Logout user")
+	err := app.SessionManager.RenewToken(r.Context())
+	if err != nil {
+		app.serverError(r, err)
+		return
+	}
+
+	app.SessionManager.Remove(r.Context(), "authenticatedUserID")
+	app.SessionManager.Put(r.Context(), "flash", "You've successfully been logged out")
+
+	http.Redirect(w, r, "/user/login", http.StatusSeeOther)
 }
