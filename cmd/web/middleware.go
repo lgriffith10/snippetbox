@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"github.com/justinas/nosurf"
 	"net/http"
 )
 
@@ -44,6 +46,51 @@ func (app *Application) recoverPanic(next http.Handler) http.Handler {
 				app.clientError(http.StatusInternalServerError, w)
 			}
 		}()
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *Application) requireAuthentication(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !app.isAuthenticated(r) {
+			http.Redirect(w, r, "/user/login", http.StatusSeeOther)
+			return
+		}
+
+		w.Header().Add("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func noSurf(next http.Handler) http.Handler {
+	csrfHandler := nosurf.New(next)
+	csrfHandler.SetBaseCookie(http.Cookie{
+		HttpOnly: true,
+		Path:     "/",
+		Secure:   true,
+	})
+
+	return csrfHandler
+}
+
+func (app *Application) authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := app.SessionManager.GetInt(r.Context(), "authenticatedUserID")
+		if id == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		exists, err := app.Users.Exists(id)
+		if err != nil {
+			app.serverError(r, err)
+		}
+
+		if exists {
+			ctx := context.WithValue(r.Context(), isAuthenticatedContextKey, true)
+			r = r.WithContext(ctx)
+		}
 
 		next.ServeHTTP(w, r)
 	})

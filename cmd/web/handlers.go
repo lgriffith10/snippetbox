@@ -207,7 +207,7 @@ func (app *Application) LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app.SessionManager.Put(r.Context(), "authenticatedUserId", id)
+	app.SessionManager.Put(r.Context(), "authenticatedUserID", id)
 	http.Redirect(w, r, "/snippet/create", http.StatusSeeOther)
 }
 
