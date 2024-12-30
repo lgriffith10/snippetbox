@@ -4,15 +4,30 @@ import (
 	"bytes"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-playground/form/v4"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"snippetbox/internal/models/mocks"
 	"testing"
 	"time"
 )
+
+var csrfTokenRX = regexp.MustCompile(`<input type="hidden" name="csrf_token" value="(.+)"/>`)
+
+func extractCSRFToken(t *testing.T, body string) string {
+	matches := csrfTokenRX.FindStringSubmatch(body)
+
+	if len(matches) < 2 {
+		t.Fatalf("CSRF token did not match body")
+	}
+
+	return html.UnescapeString(matches[1])
+}
 
 func newTestApplication(t *testing.T) *Application {
 	templateCache, err := newTemplateCache()
@@ -69,5 +84,21 @@ func (ts *testServer) get(t *testing.T, urlPath string) (int, http.Header, strin
 	}
 	body = bytes.TrimSpace(body)
 
+	return rs.StatusCode, rs.Header, string(body)
+}
+
+func (ts *testServer) postForm(t *testing.T, url string, form url.Values) (int, http.Header, string) {
+	rs, err := ts.Client().PostForm(ts.URL+url, form)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer rs.Body.Close()
+	body, err := io.ReadAll(rs.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body = bytes.TrimSpace(body)
 	return rs.StatusCode, rs.Header, string(body)
 }
