@@ -12,5 +12,19 @@ services:
     volumes:
       - my-db:/var/lib/mysql
 
+  db-test:
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: snippetboxtest
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_PASSWORD: test
+      MYSQL_USER: test
+    ports:
+      - "3307:3306"
+    volumes:
+      - test:/var/lib/mysql
+
 volumes:
   my-db:
+  test:
